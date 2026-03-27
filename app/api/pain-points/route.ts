@@ -98,3 +98,45 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  const auth = await authenticate(request);
+  if (isAuthError(auth)) return auth;
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+
+    const sql = getDb();
+
+    // Verify the pain point belongs to user's household
+    const users = await sql`
+      SELECT household_id FROM users WHERE id = ${auth.userId}
+    `;
+
+    const result = await sql`
+      DELETE FROM pain_points
+      WHERE id = ${id} AND household_id = ${users[0]?.household_id}
+      RETURNING id
+    `;
+
+    if (result.length === 0) {
+      return NextResponse.json(
+        { error: "Pain point not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ deleted: true });
+  } catch (error) {
+    console.error("Delete pain point error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
