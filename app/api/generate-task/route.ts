@@ -1,31 +1,47 @@
 // Vercel API Route: app/api/generate-task/route.ts
-// This endpoint uses a PRIVILEGED query (reads all household data, not just the requesting user's)
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { authenticate, isAuthError } from "@/lib/middleware";
 
 const sql = neon(process.env.DATABASE_URL!);
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY!;
 
 export async function POST(request: NextRequest) {
   const auth = await authenticate(request);
   if (isAuthError(auth)) return auth;
 
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_API_KEY) {
+    console.error("ANTHROPIC_API_KEY is not set");
+    return NextResponse.json(
+      { error: "AI service not configured" },
+      { status: 503 }
+    );
+  }
+
   try {
-    const { duration_minutes } = await request.json();
+    const body = await request.json();
+    const duration_minutes = body.duration_minutes ?? body.durationMinutes;
+
+    if (!duration_minutes) {
+      return NextResponse.json(
+        { error: "duration_minutes is required" },
+        { status: 400 }
+      );
+    }
 
     // Look up the user's household and member record
-    const [member] = await sql`
+    const memberRows = await sql`
       SELECT m.id as member_id, m.household_id
       FROM members m WHERE m.user_id = ${auth.userId} LIMIT 1
     `;
+    const member = memberRows[0];
     if (!member) {
       return NextResponse.json({ error: "No household" }, { status: 400 });
     }
 
     const { member_id, household_id } = member;
 
-    // Fetch ALL household context (engine is omniscient)
+    // Fetch ALL household context
     const [spaces, rooms, painPoints, recentTasks] = await Promise.all([
       sql`SELECT * FROM spaces WHERE household_id = ${household_id} LIMIT 1`,
       sql`SELECT r.* FROM rooms r
@@ -33,7 +49,6 @@ export async function POST(request: NextRequest) {
           WHERE s.household_id = ${household_id}
           ORDER BY r.sort_order`,
       sql`SELECT * FROM pain_points WHERE household_id = ${household_id}`,
-      // Last 60 days of ALL household members' tasks (engine sees everything)
       sql`SELECT t.*, s.member_id, s.status, s.completed_at
           FROM tasks t
           JOIN sessions s ON t.session_id = s.id
@@ -58,7 +73,6 @@ export async function POST(request: NextRequest) {
       .map((p: any) => p.description)
       .join("; ");
 
-    // Build task history summary
     const completedTasks = recentTasks.filter(
       (t: any) => t.status === "done"
     );
@@ -66,7 +80,6 @@ export async function POST(request: NextRequest) {
       (t: any) => t.status === "skipped"
     );
 
-    // Calculate days since each room was last cleaned
     const roomLastCleaned: Record<string, string> = {};
     for (const room of rooms) {
       const lastTask = completedTasks.find(
@@ -83,12 +96,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Recent task titles to avoid repetition
     const recentTaskTitles = completedTasks
       .slice(0, 15)
       .map((t: any) => t.title);
-
-    // Skipped tasks indicate dislike — avoid similar ones
     const recentSkips = skippedTasks
       .slice(0, 5)
       .map((t: any) => t.title);
@@ -108,16 +118,16 @@ RULES:
 4. Avoid tasks similar to recently skipped ones — the user didn't want to do those
 5. Prioritize rooms and areas that haven't been attended to recently
 6. Weight the user's stated pain points — if they said the bathroom is a struggle, it should come up more often (but not every time)
-7. Include small, overlooked tasks regularly — these are your secret weapon. Things like: wiping light switches, cleaning door handles, dusting the top of the fridge, wiping baseboards in the hallway, cleaning the inside of the microwave, wiping cabinet fronts, cleaning window sills
-8. For longer sessions (30-60 min), suggest deeper tasks: reorganize under the sink, deep clean the oven, wash all the windows in one room, clean out and wipe the fridge
-9. For short sessions (10-15 min), suggest quick wins: wipe a specific surface, vacuum one room, clean one appliance
+7. Include small, overlooked tasks regularly — these are your secret weapon
+8. For longer sessions (30-60 min), suggest deeper tasks
+9. For short sessions (10-15 min), suggest quick wins
 
 Respond in JSON only:
 {
   "room_type": "the room type from the available rooms",
   "title": "short task name, 3-8 words",
   "description": "specific step-by-step instructions, 2-3 sentences. Include what tools/supplies to grab.",
-  "rationale": "one sentence explaining why this task was chosen right now. Reference time since last clean or the user's stated pain points. Be honest and specific.",
+  "rationale": "one sentence explaining why this task was chosen right now.",
   "difficulty": "light | medium | deep"
 }`;
 
@@ -158,6 +168,23 @@ Generate one task.`;
     });
 
     const result = await response.json();
+
+    if (!response.ok) {
+      console.error("Anthropic API error:", result);
+      return NextResponse.json(
+        { error: "AI service error", detail: result.error?.message },
+        { status: 502 }
+      );
+    }
+
+    if (!result.content || !result.content[0]?.text) {
+      console.error("Unexpected Anthropic response:", result);
+      return NextResponse.json(
+        { error: "AI returned unexpected response" },
+        { status: 502 }
+      );
+    }
+
     const taskJson = JSON.parse(
       result.content[0].text.replace(/```json\n?|\n?```/g, "")
     );
@@ -170,19 +197,21 @@ Generate one task.`;
     );
 
     // Store the session and task
-    const [session] = await sql`
+    const sessionRows = await sql`
       INSERT INTO sessions (household_id, member_id, duration_minutes, status)
       VALUES (${household_id}, ${member_id}, ${duration_minutes}, 'active')
       RETURNING *
     `;
+    const session = sessionRows[0];
 
-    const [task] = await sql`
+    const taskRows = await sql`
       INSERT INTO tasks (session_id, household_id, room_id, title, description, rationale, difficulty, engine_version)
       VALUES (${session.id}, ${household_id}, ${matchedRoom?.id || null},
               ${taskJson.title}, ${taskJson.description}, ${taskJson.rationale},
               ${taskJson.difficulty}, 'v1')
       RETURNING *
     `;
+    const task = taskRows[0];
 
     return NextResponse.json({
       session_id: session.id,
