@@ -9,7 +9,7 @@ const appleJWKS = createRemoteJWKSet(APPLE_JWKS_URL);
 async function verifyAppleToken(identityToken: string) {
   const { payload } = await jwtVerify(identityToken, appleJWKS, {
     issuer: "https://appleid.apple.com",
-    audience: process.env.APPLE_TEAM_ID,
+    audience: process.env.APPLE_CLIENT_ID,
   });
   return payload;
 }
