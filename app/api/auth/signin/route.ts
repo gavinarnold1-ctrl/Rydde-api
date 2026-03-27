@@ -16,7 +16,13 @@ async function verifyAppleToken(identityToken: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { identityToken, fullName } = await request.json();
+    const body = await request.json();
+
+    // Accept both camelCase and snake_case field names (iOS client sends snake_case)
+    const identityToken = body.identityToken ?? body.identity_token;
+    const firstName = body.firstName ?? body.first_name;
+    const lastName = body.lastName ?? body.last_name;
+    const fullName = body.fullName ?? [firstName, lastName].filter(Boolean).join(" ") || null;
 
     if (!identityToken) {
       return NextResponse.json(
