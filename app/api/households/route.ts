@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const households = await sql`
       INSERT INTO households (name, invite_code, created_by)
       VALUES (${name}, ${inviteCode}, ${auth.userId})
-      RETURNING id, name, invite_code, created_at
+      RETURNING id, name, invite_code, created_at, updated_at
     `;
 
     const household = households[0];
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       WHERE id = ${auth.userId}
     `;
 
-    return NextResponse.json({ household }, { status: 201 });
+    return NextResponse.json(household, { status: 201 });
   } catch (error) {
     console.error("Create household error:", error);
     return NextResponse.json(
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     const sql = getDb();
 
     const households = await sql`
-      SELECT h.id, h.name, h.invite_code, h.created_at, h.created_by
+      SELECT h.id, h.name, h.invite_code, h.created_at, h.updated_at, h.created_by
       FROM households h
       JOIN users u ON u.household_id = h.id
       WHERE u.id = ${auth.userId}

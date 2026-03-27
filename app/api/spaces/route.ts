@@ -24,10 +24,10 @@ export async function GET(request: NextRequest) {
     const householdId = users[0].household_id;
 
     const spaces = await sql`
-      SELECT s.id, s.name, s.household_id, s.created_at,
+      SELECT s.id, s.name, s.household_id, s.created_at, s.updated_at,
         COALESCE(
           json_agg(
-            json_build_object('id', r.id, 'name', r.name, 'createdAt', r.created_at)
+            json_build_object('id', r.id, 'name', r.name, 'space_id', r.space_id, 'created_at', r.created_at)
           ) FILTER (WHERE r.id IS NOT NULL),
           '[]'
         ) AS rooms
@@ -53,7 +53,10 @@ export async function POST(request: NextRequest) {
   if (isAuthError(auth)) return auth;
 
   try {
-    const { name, rooms } = await request.json();
+    const body = await request.json();
+    const name = body.name;
+    const rooms = body.rooms;
+    const householdId = body.householdId ?? body.household_id;
 
     if (!name || typeof name !== "string") {
       return NextResponse.json(
@@ -64,23 +67,26 @@ export async function POST(request: NextRequest) {
 
     const sql = getDb();
 
-    const users = await sql`
-      SELECT household_id FROM users WHERE id = ${auth.userId}
-    `;
+    // Use provided householdId or fall back to user's household
+    let hId = householdId;
+    if (!hId) {
+      const users = await sql`
+        SELECT household_id FROM users WHERE id = ${auth.userId}
+      `;
+      hId = users[0]?.household_id;
+    }
 
-    if (!users[0]?.household_id) {
+    if (!hId) {
       return NextResponse.json(
         { error: "User is not in a household" },
         { status: 400 }
       );
     }
 
-    const householdId = users[0].household_id;
-
     const spaces = await sql`
       INSERT INTO spaces (name, household_id)
-      VALUES (${name}, ${householdId})
-      RETURNING id, name, household_id, created_at
+      VALUES (${name}, ${hId})
+      RETURNING id, name, household_id, created_at, updated_at
     `;
 
     const space = spaces[0];
@@ -93,7 +99,7 @@ export async function POST(request: NextRequest) {
           const newRooms = await sql`
             INSERT INTO rooms (name, space_id)
             VALUES (${roomName.trim()}, ${space.id})
-            RETURNING id, name, created_at
+            RETURNING id, name, space_id, created_at
           `;
           createdRooms.push(newRooms[0]);
         }
@@ -101,7 +107,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { space: { ...space, rooms: createdRooms } },
+      { space, rooms: createdRooms },
       { status: 201 }
     );
   } catch (error) {
@@ -162,10 +168,10 @@ export async function PUT(request: NextRequest) {
     }
 
     const spaces = await sql`
-      SELECT s.id, s.name, s.household_id, s.created_at,
+      SELECT s.id, s.name, s.household_id, s.created_at, s.updated_at,
         COALESCE(
           json_agg(
-            json_build_object('id', r.id, 'name', r.name, 'createdAt', r.created_at)
+            json_build_object('id', r.id, 'name', r.name, 'space_id', r.space_id, 'created_at', r.created_at)
           ) FILTER (WHERE r.id IS NOT NULL),
           '[]'
         ) AS rooms

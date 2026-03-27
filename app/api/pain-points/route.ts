@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       const rows = await sql`
         INSERT INTO pain_points (household_id, description)
         VALUES (${householdId}, ${description})
-        RETURNING id, household_id, description, created_at
+        RETURNING id, household_id, description, created_at, NOW() as updated_at
       `;
       painPoints.push(rows[0]);
     }
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     }
 
     const painPoints = await sql`
-      SELECT id, household_id, description, created_at
+      SELECT id, household_id, description, created_at, created_at as updated_at
       FROM pain_points
       WHERE household_id = ${users[0].household_id}
       ORDER BY created_at
