@@ -113,12 +113,12 @@ PERSONALITY:
 
 RULES:
 1. Suggest exactly ONE task that fits within ${duration_minutes} minutes
-2. The task must be specific — not "clean the bathroom" but "wipe down the bathroom mirror and the faucet handles with a damp microfiber cloth"
+2. The task must be specific \u2014 not "clean the bathroom" but "wipe down the bathroom mirror and the faucet handles with a damp microfiber cloth"
 3. Never repeat a task that was completed in the last 7 days
-4. Avoid tasks similar to recently skipped ones — the user didn't want to do those
+4. Avoid tasks similar to recently skipped ones \u2014 the user didn't want to do those
 5. Prioritize rooms and areas that haven't been attended to recently
-6. Weight the user's stated pain points — if they said the bathroom is a struggle, it should come up more often (but not every time)
-7. Include small, overlooked tasks regularly — these are your secret weapon
+6. Weight the user's stated pain points \u2014 if they said the bathroom is a struggle, it should come up more often (but not every time)
+7. Include small, overlooked tasks regularly \u2014 these are your secret weapon
 8. For longer sessions (30-60 min), suggest deeper tasks
 9. For short sessions (10-15 min), suggest quick wins
 
@@ -142,7 +142,7 @@ ${Object.entries(roomLastCleaned)
   .join("\n")}
 
 RECENTLY COMPLETED (avoid repeating):
-${recentTaskTitles.length > 0 ? recentTaskTitles.join(", ") : "No history yet — this is their first session"}
+${recentTaskTitles.length > 0 ? recentTaskTitles.join(", ") : "No history yet \u2014 this is their first session"}
 
 RECENTLY SKIPPED (avoid similar):
 ${recentSkips.length > 0 ? recentSkips.join(", ") : "None"}
@@ -160,7 +160,7 @@ Generate one task.`;
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 500,
         system: systemPrompt,
         messages: [{ role: "user", content: userMessage }],
