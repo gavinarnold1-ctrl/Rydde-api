@@ -9,7 +9,6 @@ export async function GET(request: NextRequest) {
   try {
     const sql = getDb();
 
-    // Get user's household_id
     const users = await sql`
       SELECT household_id FROM users WHERE id = ${auth.userId}
     `;
@@ -24,10 +23,10 @@ export async function GET(request: NextRequest) {
     const householdId = users[0].household_id;
 
     const spaces = await sql`
-      SELECT s.id, s.name, s.household_id, s.created_at, s.updated_at,
+      SELECT s.id, s.home_type as name, s.household_id, s.updated_at, s.updated_at as created_at,
         COALESCE(
           json_agg(
-            json_build_object('id', r.id, 'name', r.name, 'space_id', r.space_id, 'created_at', r.created_at)
+            json_build_object('id', r.id, 'name', r.name, 'space_id', r.space_id, 'created_at', r.updated_at, 'updated_at', r.updated_at)
           ) FILTER (WHERE r.id IS NOT NULL),
           '[]'
         ) AS rooms
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN rooms r ON r.space_id = s.id
       WHERE s.household_id = ${householdId}
       GROUP BY s.id
-      ORDER BY s.created_at
+      ORDER BY s.updated_at
     `;
 
     return NextResponse.json({ spaces });
@@ -84,9 +83,9 @@ export async function POST(request: NextRequest) {
     }
 
     const spaces = await sql`
-      INSERT INTO spaces (name, household_id)
+      INSERT INTO spaces (home_type, household_id)
       VALUES (${name}, ${hId})
-      RETURNING id, name, household_id, created_at, updated_at
+      RETURNING id, home_type as name, household_id, updated_at, updated_at as created_at
     `;
 
     const space = spaces[0];
@@ -94,14 +93,16 @@ export async function POST(request: NextRequest) {
     // Create rooms if provided
     const createdRooms = [];
     if (Array.isArray(rooms)) {
+      let sortOrder = 0;
       for (const roomName of rooms) {
         if (typeof roomName === "string" && roomName.trim()) {
           const newRooms = await sql`
-            INSERT INTO rooms (name, space_id)
-            VALUES (${roomName.trim()}, ${space.id})
-            RETURNING id, name, space_id, created_at
+            INSERT INTO rooms (name, type, space_id, sort_order)
+            VALUES (${roomName.trim()}, ${roomName.trim()}, ${space.id}, ${sortOrder})
+            RETURNING id, name, space_id, updated_at as created_at, updated_at
           `;
           createdRooms.push(newRooms[0]);
+          sortOrder++;
         }
       }
     }
@@ -132,7 +133,6 @@ export async function PUT(request: NextRequest) {
 
     const sql = getDb();
 
-    // Verify the space belongs to user's household
     const users = await sql`
       SELECT household_id FROM users WHERE id = ${auth.userId}
     `;
@@ -151,27 +151,29 @@ export async function PUT(request: NextRequest) {
 
     if (name) {
       await sql`
-        UPDATE spaces SET name = ${name}, updated_at = NOW() WHERE id = ${id}
+        UPDATE spaces SET home_type = ${name}, updated_at = NOW() WHERE id = ${id}
       `;
     }
 
-    // Update rooms if provided: delete existing and re-create
     if (Array.isArray(rooms)) {
       await sql`DELETE FROM rooms WHERE space_id = ${id}`;
+      let sortOrder = 0;
       for (const roomName of rooms) {
         if (typeof roomName === "string" && roomName.trim()) {
           await sql`
-            INSERT INTO rooms (name, space_id) VALUES (${roomName.trim()}, ${id})
+            INSERT INTO rooms (name, type, space_id, sort_order)
+            VALUES (${roomName.trim()}, ${roomName.trim()}, ${id}, ${sortOrder})
           `;
+          sortOrder++;
         }
       }
     }
 
     const spaces = await sql`
-      SELECT s.id, s.name, s.household_id, s.created_at, s.updated_at,
+      SELECT s.id, s.home_type as name, s.household_id, s.updated_at, s.updated_at as created_at,
         COALESCE(
           json_agg(
-            json_build_object('id', r.id, 'name', r.name, 'space_id', r.space_id, 'created_at', r.created_at)
+            json_build_object('id', r.id, 'name', r.name, 'space_id', r.space_id, 'created_at', r.updated_at, 'updated_at', r.updated_at)
           ) FILTER (WHERE r.id IS NOT NULL),
           '[]'
         ) AS rooms
