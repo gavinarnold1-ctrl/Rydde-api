@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const identityToken = body.identityToken ?? body.identity_token;
     const firstName = body.firstName ?? body.first_name;
     const lastName = body.lastName ?? body.last_name;
-    const fullName = body.fullName ?? [firstName, lastName].filter(Boolean).join(" ") || null;
+    const fullName = body.fullName ?? ([firstName, lastName].filter(Boolean).join(" ") || null);
 
     if (!identityToken) {
       return NextResponse.json(
