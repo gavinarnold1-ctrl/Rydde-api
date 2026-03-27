@@ -27,13 +27,29 @@ export async function POST(request: NextRequest) {
 
     const sql = getDb();
 
+    // Look up member_id for this user in the household
+    const members = await sql`
+      SELECT id FROM members
+      WHERE user_id = ${auth.userId} AND household_id = ${householdId}
+      LIMIT 1
+    `;
+
+    if (members.length === 0) {
+      return NextResponse.json(
+        { error: "User is not a member of this household" },
+        { status: 403 }
+      );
+    }
+
+    const memberId = members[0].id;
+
     // Insert each pain point
     const painPoints = [];
     for (const description of descriptions) {
       const rows = await sql`
-        INSERT INTO pain_points (household_id, description)
-        VALUES (${householdId}, ${description})
-        RETURNING id, household_id, description, created_at, NOW() as updated_at
+        INSERT INTO pain_points (household_id, member_id, description)
+        VALUES (${householdId}, ${memberId}, ${description})
+        RETURNING id, household_id, description, created_at, created_at as updated_at
       `;
       painPoints.push(rows[0]);
     }

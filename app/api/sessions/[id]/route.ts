@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { authenticate, isAuthError } from "@/lib/middleware";
 
-const VALID_STATUSES = ["active", "paused", "completed", "cancelled"];
-
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -13,28 +11,26 @@ export async function PATCH(
 
   try {
     const { id } = await params;
-    const { status } = await request.json();
+    const body = await request.json();
+    const status = body.status;
 
-    if (!status || !VALID_STATUSES.includes(status)) {
+    if (!status) {
       return NextResponse.json(
-        { error: `status must be one of: ${VALID_STATUSES.join(", ")}` },
+        { error: "status is required" },
         { status: 400 }
       );
     }
 
     const sql = getDb();
 
-    const completedAt = status === "completed" ? new Date().toISOString() : null;
+    const completedAt = status === "done" || status === "skipped" ? new Date().toISOString() : null;
 
     const sessions = await sql`
       UPDATE sessions
-      SET
-        status = ${status},
-        completed_at = COALESCE(${completedAt}::timestamptz, completed_at),
-        updated_at = NOW()
-      WHERE id = ${id} AND user_id = ${auth.userId}
-      RETURNING id, user_id, room_id, status, duration_minutes,
-        started_at, completed_at, created_at, updated_at
+      SET status = ${status},
+          completed_at = ${completedAt}
+      WHERE id = ${id}
+      RETURNING id, household_id, member_id, duration_minutes, status, started_at, completed_at
     `;
 
     if (sessions.length === 0) {
@@ -44,7 +40,7 @@ export async function PATCH(
       );
     }
 
-    return NextResponse.json({ session: sessions[0] });
+    return NextResponse.json(sessions[0]);
   } catch (error) {
     console.error("Update session error:", error);
     return NextResponse.json(

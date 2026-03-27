@@ -9,22 +9,25 @@ export async function GET(request: NextRequest) {
   try {
     const sql = getDb();
 
-    const users = await sql`
-      SELECT household_id FROM users WHERE id = ${auth.userId}
+    const members = await sql`
+      SELECT m.id as member_id, m.household_id
+      FROM members m WHERE m.user_id = ${auth.userId} LIMIT 1
     `;
 
-    if (!users[0]?.household_id) {
+    if (members.length === 0) {
       return NextResponse.json(
-        { error: "User is not in a household" },
-        { status: 400 }
+        { error: "No household found" },
+        { status: 404 }
       );
     }
 
+    const { member_id, household_id } = members[0];
+
     const automations = await sql`
-      SELECT id, household_id, name, cron_expression, room_id, duration_minutes,
-        enabled, created_by, created_at, updated_at
+      SELECT id, member_id, household_id, duration_minutes,
+             days_of_week, time_of_day, timezone, active, created_at
       FROM automations
-      WHERE household_id = ${users[0].household_id}
+      WHERE household_id = ${household_id} AND member_id = ${member_id}
       ORDER BY created_at DESC
     `;
 
@@ -43,40 +46,42 @@ export async function POST(request: NextRequest) {
   if (isAuthError(auth)) return auth;
 
   try {
-    const { name, cronExpression, roomId, durationMinutes } =
-      await request.json();
+    const body = await request.json();
+    const durationMinutes = body.durationMinutes ?? body.duration_minutes;
+    const daysOfWeek = body.daysOfWeek ?? body.days_of_week;
+    const timeOfDay = body.timeOfDay ?? body.time_of_day;
+    const timezone = body.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    if (!name || !cronExpression || !roomId || !durationMinutes) {
+    if (!durationMinutes || !daysOfWeek || !timeOfDay) {
       return NextResponse.json(
-        {
-          error:
-            "name, cronExpression, roomId, and durationMinutes are required",
-        },
+        { error: "duration_minutes, days_of_week, and time_of_day are required" },
         { status: 400 }
       );
     }
 
     const sql = getDb();
 
-    const users = await sql`
-      SELECT household_id FROM users WHERE id = ${auth.userId}
+    const members = await sql`
+      SELECT m.id as member_id, m.household_id
+      FROM members m WHERE m.user_id = ${auth.userId} LIMIT 1
     `;
 
-    if (!users[0]?.household_id) {
+    if (members.length === 0) {
       return NextResponse.json(
-        { error: "User is not in a household" },
+        { error: "No household found" },
         { status: 400 }
       );
     }
 
+    const { member_id, household_id } = members[0];
+
     const automations = await sql`
-      INSERT INTO automations (household_id, name, cron_expression, room_id, duration_minutes, created_by)
-      VALUES (${users[0].household_id}, ${name}, ${cronExpression}, ${roomId}, ${durationMinutes}, ${auth.userId})
-      RETURNING id, household_id, name, cron_expression, room_id, duration_minutes,
-        enabled, created_by, created_at
+      INSERT INTO automations (member_id, household_id, duration_minutes, days_of_week, time_of_day, timezone)
+      VALUES (${member_id}, ${household_id}, ${durationMinutes}, ${daysOfWeek}, ${timeOfDay}, ${timezone})
+      RETURNING id, member_id, household_id, duration_minutes, days_of_week, time_of_day, timezone, active, created_at
     `;
 
-    return NextResponse.json({ automation: automations[0] }, { status: 201 });
+    return NextResponse.json(automations[0], { status: 201 });
   } catch (error) {
     console.error("Create automation error:", error);
     return NextResponse.json(
@@ -91,8 +96,13 @@ export async function PUT(request: NextRequest) {
   if (isAuthError(auth)) return auth;
 
   try {
-    const { id, name, cronExpression, roomId, durationMinutes, enabled } =
-      await request.json();
+    const body = await request.json();
+    const id = body.id;
+    const durationMinutes = body.durationMinutes ?? body.duration_minutes;
+    const daysOfWeek = body.daysOfWeek ?? body.days_of_week;
+    const timeOfDay = body.timeOfDay ?? body.time_of_day;
+    const timezone = body.timezone;
+    const active = body.active;
 
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -100,22 +110,15 @@ export async function PUT(request: NextRequest) {
 
     const sql = getDb();
 
-    const users = await sql`
-      SELECT household_id FROM users WHERE id = ${auth.userId}
-    `;
-
-    // Build update dynamically but safely with parameterized queries
     const automations = await sql`
-      UPDATE automations SET
-        name = COALESCE(${name ?? null}, name),
-        cron_expression = COALESCE(${cronExpression ?? null}, cron_expression),
-        room_id = COALESCE(${roomId ?? null}, room_id),
-        duration_minutes = COALESCE(${durationMinutes ?? null}, duration_minutes),
-        enabled = COALESCE(${enabled ?? null}, enabled),
-        updated_at = NOW()
-      WHERE id = ${id} AND household_id = ${users[0]?.household_id}
-      RETURNING id, household_id, name, cron_expression, room_id, duration_minutes,
-        enabled, created_by, created_at, updated_at
+      UPDATE automations
+      SET duration_minutes = COALESCE(${durationMinutes ?? null}, duration_minutes),
+          days_of_week = COALESCE(${daysOfWeek ?? null}, days_of_week),
+          time_of_day = COALESCE(${timeOfDay ?? null}, time_of_day),
+          timezone = COALESCE(${timezone ?? null}, timezone),
+          active = COALESCE(${active ?? null}, active)
+      WHERE id = ${id}
+      RETURNING id, member_id, household_id, duration_minutes, days_of_week, time_of_day, timezone, active, created_at
     `;
 
     if (automations.length === 0) {
@@ -125,7 +128,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ automation: automations[0] });
+    return NextResponse.json(automations[0]);
   } catch (error) {
     console.error("Update automation error:", error);
     return NextResponse.json(
@@ -149,13 +152,8 @@ export async function DELETE(request: NextRequest) {
 
     const sql = getDb();
 
-    const users = await sql`
-      SELECT household_id FROM users WHERE id = ${auth.userId}
-    `;
-
     const result = await sql`
-      DELETE FROM automations
-      WHERE id = ${id} AND household_id = ${users[0]?.household_id}
+      DELETE FROM automations WHERE id = ${id}
       RETURNING id
     `;
 

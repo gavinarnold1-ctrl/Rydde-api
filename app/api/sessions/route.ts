@@ -9,15 +9,26 @@ export async function GET(request: NextRequest) {
   try {
     const sql = getDb();
 
+    const members = await sql`
+      SELECT m.id as member_id, m.household_id
+      FROM members m WHERE m.user_id = ${auth.userId} LIMIT 1
+    `;
+
+    if (members.length === 0) {
+      return NextResponse.json(
+        { error: "No household found" },
+        { status: 404 }
+      );
+    }
+
+    const { member_id, household_id } = members[0];
+
     const sessions = await sql`
-      SELECT
-        s.id, s.user_id, s.room_id, s.status,
-        s.duration_minutes, s.started_at, s.completed_at,
-        s.created_at, r.name AS room_name
-      FROM sessions s
-      LEFT JOIN rooms r ON r.id = s.room_id
-      WHERE s.user_id = ${auth.userId}
-      ORDER BY s.created_at DESC
+      SELECT id, household_id, member_id, duration_minutes, status,
+             started_at, completed_at
+      FROM sessions
+      WHERE household_id = ${household_id} AND member_id = ${member_id}
+      ORDER BY started_at DESC NULLS LAST
     `;
 
     return NextResponse.json({ sessions });
@@ -35,31 +46,39 @@ export async function POST(request: NextRequest) {
   if (isAuthError(auth)) return auth;
 
   try {
-    const { roomId, durationMinutes } = await request.json();
-
-    if (!roomId) {
-      return NextResponse.json(
-        { error: "roomId is required" },
-        { status: 400 }
-      );
-    }
+    const body = await request.json();
+    const durationMinutes = body.durationMinutes ?? body.duration_minutes;
 
     if (!durationMinutes || typeof durationMinutes !== "number") {
       return NextResponse.json(
-        { error: "durationMinutes is required and must be a number" },
+        { error: "duration_minutes is required" },
         { status: 400 }
       );
     }
 
     const sql = getDb();
 
-    const sessions = await sql`
-      INSERT INTO sessions (user_id, room_id, duration_minutes, status, started_at)
-      VALUES (${auth.userId}, ${roomId}, ${durationMinutes}, 'active', NOW())
-      RETURNING id, user_id, room_id, status, duration_minutes, started_at, created_at
+    const members = await sql`
+      SELECT m.id as member_id, m.household_id
+      FROM members m WHERE m.user_id = ${auth.userId} LIMIT 1
     `;
 
-    return NextResponse.json({ session: sessions[0] }, { status: 201 });
+    if (members.length === 0) {
+      return NextResponse.json(
+        { error: "No household found" },
+        { status: 400 }
+      );
+    }
+
+    const { member_id, household_id } = members[0];
+
+    const sessions = await sql`
+      INSERT INTO sessions (household_id, member_id, duration_minutes, status, started_at)
+      VALUES (${household_id}, ${member_id}, ${durationMinutes}, 'active', NOW())
+      RETURNING id, household_id, member_id, duration_minutes, status, started_at
+    `;
+
+    return NextResponse.json(sessions[0], { status: 201 });
   } catch (error) {
     console.error("Create session error:", error);
     return NextResponse.json(

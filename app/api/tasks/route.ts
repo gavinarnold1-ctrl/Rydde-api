@@ -8,33 +8,31 @@ export async function GET(request: NextRequest) {
 
   try {
     const sql = getDb();
-    const { searchParams } = new URL(request.url);
-    const sessionId = searchParams.get("sessionId");
 
-    let tasks;
-    if (sessionId) {
-      tasks = await sql`
-        SELECT t.id, t.session_id, t.room_id, t.title, t.description,
-          t.duration_seconds, t.status, t.completed_at, t.created_at,
-          r.name AS room_name
-        FROM tasks t
-        LEFT JOIN rooms r ON r.id = t.room_id
-        JOIN sessions s ON s.id = t.session_id
-        WHERE s.user_id = ${auth.userId} AND t.session_id = ${sessionId}
-        ORDER BY t.created_at DESC
-      `;
-    } else {
-      tasks = await sql`
-        SELECT t.id, t.session_id, t.room_id, t.title, t.description,
-          t.duration_seconds, t.status, t.completed_at, t.created_at,
-          r.name AS room_name
-        FROM tasks t
-        LEFT JOIN rooms r ON r.id = t.room_id
-        JOIN sessions s ON s.id = t.session_id
-        WHERE s.user_id = ${auth.userId}
-        ORDER BY t.created_at DESC
-      `;
+    const members = await sql`
+      SELECT m.id as member_id, m.household_id
+      FROM members m WHERE m.user_id = ${auth.userId} LIMIT 1
+    `;
+
+    if (members.length === 0) {
+      return NextResponse.json(
+        { error: "No household found" },
+        { status: 404 }
+      );
     }
+
+    const { household_id } = members[0];
+
+    const tasks = await sql`
+      SELECT t.id, t.session_id, t.household_id, t.room_id, t.title,
+             t.description, t.rationale, t.difficulty, t.engine_version, t.created_at,
+             r.name as room_name
+      FROM tasks t
+      LEFT JOIN rooms r ON t.room_id = r.id
+      JOIN sessions s ON t.session_id = s.id
+      WHERE t.household_id = ${household_id}
+      ORDER BY t.created_at DESC
+    `;
 
     return NextResponse.json({ tasks });
   } catch (error) {

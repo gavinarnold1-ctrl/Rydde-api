@@ -42,6 +42,19 @@ export async function POST(request: NextRequest) {
       WHERE id = ${auth.userId}
     `;
 
+    // Get user info for display_name
+    const users = await sql`
+      SELECT full_name, email FROM users WHERE id = ${auth.userId}
+    `;
+    const displayName = users[0]?.full_name || users[0]?.email || "Owner";
+
+    // Create a member record for the user
+    await sql`
+      INSERT INTO members (user_id, household_id, display_name, role)
+      VALUES (${auth.userId}, ${household.id}, ${displayName}, 'owner')
+      ON CONFLICT (user_id, household_id) DO NOTHING
+    `;
+
     return NextResponse.json(household, { status: 201 });
   } catch (error) {
     console.error("Create household error:", error);
@@ -75,10 +88,9 @@ export async function GET(request: NextRequest) {
 
     const household = households[0];
 
-    // Get household members
     const members = await sql`
-      SELECT id, email, full_name, created_at
-      FROM users
+      SELECT id, user_id, display_name, role, joined_at
+      FROM members
       WHERE household_id = ${household.id}
     `;
 
