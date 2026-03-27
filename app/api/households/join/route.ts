@@ -7,11 +7,12 @@ export async function POST(request: NextRequest) {
   if (isAuthError(auth)) return auth;
 
   try {
-    const { inviteCode } = await request.json();
+    const body = await request.json();
+    const inviteCode = body.code ?? body.inviteCode ?? body.invite_code;
 
     if (!inviteCode || typeof inviteCode !== "string") {
       return NextResponse.json(
-        { error: "inviteCode is required" },
+        { error: "code is required" },
         { status: 400 }
       );
     }
@@ -33,12 +34,25 @@ export async function POST(request: NextRequest) {
 
     const household = households[0];
 
+    // Assign user to household
     await sql`
       UPDATE users SET household_id = ${household.id}, updated_at = NOW()
       WHERE id = ${auth.userId}
     `;
 
-    return NextResponse.json({ household });
+    // Create member record
+    const users = await sql`
+      SELECT full_name, email FROM users WHERE id = ${auth.userId}
+    `;
+    const displayName = users[0]?.full_name || users[0]?.email || "Member";
+
+    await sql`
+      INSERT INTO members (user_id, household_id, display_name, role)
+      VALUES (${auth.userId}, ${household.id}, ${displayName}, 'member')
+      ON CONFLICT (user_id, household_id) DO NOTHING
+    `;
+
+    return NextResponse.json({ household_id: household.id });
   } catch (error) {
     console.error("Join household error:", error);
     return NextResponse.json(

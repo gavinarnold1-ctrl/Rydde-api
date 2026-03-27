@@ -10,12 +10,8 @@ export async function GET(request: NextRequest) {
     const sql = getDb();
 
     const users = await sql`
-      SELECT
-        u.id, u.apple_user_id, u.email, u.full_name,
-        u.household_id, u.created_at, u.updated_at,
-        h.name AS household_name, h.invite_code AS household_invite_code
+      SELECT u.id, u.email, u.full_name, u.household_id, u.created_at, u.updated_at
       FROM users u
-      LEFT JOIN households h ON h.id = u.household_id
       WHERE u.id = ${auth.userId}
     `;
 
@@ -24,26 +20,70 @@ export async function GET(request: NextRequest) {
     }
 
     const user = users[0];
+    const nameParts = (user.full_name || "").split(" ");
+
     return NextResponse.json({
       user: {
         id: user.id,
-        appleUserId: user.apple_user_id,
         email: user.email,
-        fullName: user.full_name,
-        householdId: user.household_id,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at,
+        full_name: user.full_name,
+        first_name: nameParts[0] || null,
+        last_name: nameParts.slice(1).join(" ") || null,
+        household_id: user.household_id,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
       },
-      household: user.household_id
-        ? {
-            id: user.household_id,
-            name: user.household_name,
-            inviteCode: user.household_invite_code,
-          }
-        : null,
     });
   } catch (error) {
     console.error("Get me error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const auth = await authenticate(request);
+  if (isAuthError(auth)) return auth;
+
+  try {
+    const body = await request.json();
+    const firstName = body.firstName ?? body.first_name;
+
+    const sql = getDb();
+
+    if (firstName !== undefined) {
+      // Get current name to preserve last name
+      const current = await sql`
+        SELECT full_name FROM users WHERE id = ${auth.userId}
+      `;
+      const currentParts = (current[0]?.full_name || "").split(" ");
+      const lastName = currentParts.slice(1).join(" ");
+      const fullName = lastName ? `${firstName} ${lastName}` : firstName;
+
+      await sql`
+        UPDATE users SET full_name = ${fullName}, updated_at = NOW()
+        WHERE id = ${auth.userId}
+      `;
+    }
+
+    // Also update member display_name if exists
+    if (firstName) {
+      await sql`
+        UPDATE members SET display_name = ${firstName}
+        WHERE user_id = ${auth.userId}
+      `;
+    }
+
+    const users = await sql`
+      SELECT id, email, full_name, household_id, created_at, updated_at
+      FROM users WHERE id = ${auth.userId}
+    `;
+
+    return NextResponse.json(users[0]);
+  } catch (error) {
+    console.error("Update me error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
