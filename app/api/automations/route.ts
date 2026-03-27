@@ -3,15 +3,22 @@ import { getDb } from "@/lib/db";
 import { authenticate, isAuthError } from "@/lib/middleware";
 
 function formatAutomation(row: any) {
+  // days_of_week comes back as a Postgres array (already parsed by neon)
+  const days = Array.isArray(row.days_of_week) ? row.days_of_week : [];
   return {
     id: row.id,
     is_enabled: row.active ?? true,
     config: {
       time_of_day: row.time_of_day,
       duration_minutes: row.duration_minutes,
-      days: row.days_of_week,
+      days: days,
     },
   };
+}
+
+// Convert JS array to Postgres array literal: {mon,tue,wed}
+function toPgArray(arr: string[]): string {
+  return "{" + arr.join(",") + "}";
 }
 
 export async function GET(request: NextRequest) {
@@ -88,10 +95,11 @@ export async function POST(request: NextRequest) {
     }
 
     const { member_id, household_id } = members[0];
+    const pgDays = toPgArray(days);
 
     const automations = await sql`
       INSERT INTO automations (member_id, household_id, duration_minutes, days_of_week, time_of_day, timezone, active)
-      VALUES (${member_id}, ${household_id}, ${durationMinutes}, ${JSON.stringify(days)}, ${timeOfDay}, ${timezone}, ${isEnabled})
+      VALUES (${member_id}, ${household_id}, ${durationMinutes}, ${pgDays}, ${timeOfDay}, ${timezone}, ${isEnabled})
       RETURNING *
     `;
 

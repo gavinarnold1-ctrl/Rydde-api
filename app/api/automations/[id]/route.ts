@@ -3,15 +3,20 @@ import { getDb } from "@/lib/db";
 import { authenticate, isAuthError } from "@/lib/middleware";
 
 function formatAutomation(row: any) {
+  const days = Array.isArray(row.days_of_week) ? row.days_of_week : [];
   return {
     id: row.id,
     is_enabled: row.active ?? true,
     config: {
       time_of_day: row.time_of_day,
       duration_minutes: row.duration_minutes,
-      days: row.days_of_week,
+      days: days,
     },
   };
+}
+
+function toPgArray(arr: string[]): string {
+  return "{" + arr.join(",") + "}";
 }
 
 export async function PATCH(
@@ -29,7 +34,6 @@ export async function PATCH(
 
     const sql = getDb();
 
-    // Build update fields
     const updates: Record<string, any> = {};
     if (isEnabled !== undefined) updates.active = isEnabled;
     if (config) {
@@ -38,7 +42,7 @@ export async function PATCH(
       const days = config.days;
       if (timeOfDay !== undefined) updates.time_of_day = timeOfDay;
       if (durationMinutes !== undefined) updates.duration_minutes = durationMinutes;
-      if (days !== undefined) updates.days_of_week = JSON.stringify(days);
+      if (days !== undefined) updates.days_of_week = toPgArray(days);
     }
 
     const automations = await sql`
