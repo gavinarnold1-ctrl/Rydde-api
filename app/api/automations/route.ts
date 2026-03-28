@@ -2,9 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { authenticate, isAuthError } from "@/lib/middleware";
 
+const DAY_NAME_TO_INT: Record<string, number> = {
+  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+};
+const INT_TO_DAY_NAME: Record<number, string> = {
+  0: "sun", 1: "mon", 2: "tue", 3: "wed", 4: "thu", 5: "fri", 6: "sat",
+};
+
 function formatAutomation(row: any) {
-  // days_of_week comes back as a Postgres array (already parsed by neon)
-  const days = Array.isArray(row.days_of_week) ? row.days_of_week : [];
+  const rawDays = Array.isArray(row.days_of_week) ? row.days_of_week : [];
+  // Convert ints back to day names for iOS
+  const days = rawDays.map((d: any) =>
+    typeof d === "number" ? (INT_TO_DAY_NAME[d] ?? d) : d
+  );
   return {
     id: row.id,
     is_enabled: row.active ?? true,
@@ -16,9 +26,10 @@ function formatAutomation(row: any) {
   };
 }
 
-// Convert JS array to Postgres array literal: {mon,tue,wed}
-function toPgArray(arr: string[]): string {
-  return "{" + arr.join(",") + "}";
+// Convert day names to int array for Postgres: {1,2,3}
+function daysToPgArray(arr: string[]): string {
+  const ints = arr.map((d) => DAY_NAME_TO_INT[d] ?? d);
+  return "{" + ints.join(",") + "}";
 }
 
 export async function GET(request: NextRequest) {
@@ -95,7 +106,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { member_id, household_id } = members[0];
-    const pgDays = toPgArray(days);
+    const pgDays = daysToPgArray(days);
 
     const automations = await sql`
       INSERT INTO automations (member_id, household_id, duration_minutes, days_of_week, time_of_day, timezone, active)

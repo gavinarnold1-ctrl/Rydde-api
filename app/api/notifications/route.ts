@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { SignJWT, importPKCS8 } from "jose";
 
-const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+// days_of_week is INT[] in DB: 0=Sun, 1=Mon, ..., 6=Sat
 
 async function createApnsJwt(): Promise<string | null> {
   const keyId = process.env.APNS_KEY_ID;
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
       const nowInTz = new Date(
         new Date().toLocaleString("en-US", { timeZone: auto.timezone || "America/New_York" })
       );
-      const currentDay = DAY_NAMES[nowInTz.getDay()];
+      const currentDayInt = nowInTz.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
       const currentHour = nowInTz.getHours();
       const currentMinute = nowInTz.getMinutes();
 
@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
       const days = Array.isArray(auto.days_of_week)
         ? auto.days_of_week
         : [];
-      if (!days.includes(currentDay)) {
+      if (!days.includes(currentDayInt)) {
         skipped++;
         continue;
       }

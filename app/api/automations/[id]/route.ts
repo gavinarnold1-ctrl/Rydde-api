@@ -2,8 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { authenticate, isAuthError } from "@/lib/middleware";
 
+const DAY_NAME_TO_INT: Record<string, number> = {
+  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+};
+const INT_TO_DAY_NAME: Record<number, string> = {
+  0: "sun", 1: "mon", 2: "tue", 3: "wed", 4: "thu", 5: "fri", 6: "sat",
+};
+
 function formatAutomation(row: any) {
-  const days = Array.isArray(row.days_of_week) ? row.days_of_week : [];
+  const rawDays = Array.isArray(row.days_of_week) ? row.days_of_week : [];
+  const days = rawDays.map((d: any) =>
+    typeof d === "number" ? (INT_TO_DAY_NAME[d] ?? d) : d
+  );
   return {
     id: row.id,
     is_enabled: row.active ?? true,
@@ -15,8 +25,9 @@ function formatAutomation(row: any) {
   };
 }
 
-function toPgArray(arr: string[]): string {
-  return "{" + arr.join(",") + "}";
+function daysToPgArray(arr: string[]): string {
+  const ints = arr.map((d) => DAY_NAME_TO_INT[d] ?? d);
+  return "{" + ints.join(",") + "}";
 }
 
 export async function PATCH(
@@ -42,7 +53,7 @@ export async function PATCH(
       const days = config.days;
       if (timeOfDay !== undefined) updates.time_of_day = timeOfDay;
       if (durationMinutes !== undefined) updates.duration_minutes = durationMinutes;
-      if (days !== undefined) updates.days_of_week = toPgArray(days);
+      if (days !== undefined) updates.days_of_week = daysToPgArray(days);
     }
 
     const automations = await sql`
