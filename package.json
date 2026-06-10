@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/migrate.mjs && next build",
+    "migrate": "node scripts/migrate.mjs",
     "start": "next start",
     "lint": "next lint"
   },
