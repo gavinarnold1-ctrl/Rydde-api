@@ -46,9 +46,9 @@ export async function POST(request: NextRequest) {
 
     // Create the task
     const taskRows = await sql`
-      INSERT INTO tasks (session_id, household_id, room_id, title, description, rationale, difficulty, engine_version)
+      INSERT INTO tasks (session_id, household_id, room_id, title, description, rationale, difficulty, engine_version, source)
       VALUES (${session.id}, ${household_id}, ${roomId || null},
-              ${title}, ${description}, 'Manually logged', 'light', 'manual')
+              ${title}, ${description}, 'Manually logged', 'light', 'manual', 'manual')
       RETURNING *
     `;
     const task = taskRows[0];
@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
         room: roomName,
         room_id: task.room_id,
         title: task.title,
+        source: "manual",
         status: "done",
         duration_minutes: 0,
         completed_at: completedAt,

@@ -23,7 +23,8 @@ export async function GET(request: NextRequest) {
     const householdId = users[0].household_id;
 
     const spaces = await sql`
-      SELECT s.id, s.home_type as name, s.household_id, s.updated_at, s.updated_at as created_at,
+      SELECT s.id, s.home_type as name, s.household_id, s.adults, s.kids, s.pets,
+        s.updated_at, s.updated_at as created_at,
         COALESCE(
           json_agg(
             json_build_object('id', r.id, 'name', r.name, 'space_id', r.space_id, 'created_at', r.updated_at, 'updated_at', r.updated_at)
@@ -56,6 +57,9 @@ export async function POST(request: NextRequest) {
     const name = body.name;
     const rooms = body.rooms;
     const householdId = body.householdId ?? body.household_id;
+    const adults = body.adults ?? null;
+    const kids = body.kids ?? null;
+    const pets = body.pets ?? null;
 
     if (!name || typeof name !== "string") {
       return NextResponse.json(
@@ -83,9 +87,9 @@ export async function POST(request: NextRequest) {
     }
 
     const spaces = await sql`
-      INSERT INTO spaces (home_type, household_id)
-      VALUES (${name}, ${hId})
-      RETURNING id, home_type as name, household_id, updated_at, updated_at as created_at
+      INSERT INTO spaces (home_type, household_id, adults, kids, pets)
+      VALUES (${name}, ${hId}, ${adults}, ${kids}, ${pets})
+      RETURNING id, home_type as name, household_id, adults, kids, pets, updated_at, updated_at as created_at
     `;
 
     const space = spaces[0];
@@ -125,7 +129,11 @@ export async function PUT(request: NextRequest) {
   if (isAuthError(auth)) return auth;
 
   try {
-    const { id, name, rooms } = await request.json();
+    const body = await request.json();
+    const { id, name, rooms } = body;
+    const adults = body.adults;
+    const kids = body.kids;
+    const pets = body.pets;
 
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -155,6 +163,17 @@ export async function PUT(request: NextRequest) {
       `;
     }
 
+    if (adults !== undefined || kids !== undefined || pets !== undefined) {
+      await sql`
+        UPDATE spaces SET
+          adults = COALESCE(${adults ?? null}, adults),
+          kids = COALESCE(${kids ?? null}, kids),
+          pets = COALESCE(${pets ?? null}, pets),
+          updated_at = NOW()
+        WHERE id = ${id}
+      `;
+    }
+
     if (Array.isArray(rooms)) {
       await sql`DELETE FROM rooms WHERE space_id = ${id}`;
       let sortOrder = 0;
@@ -170,7 +189,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const spaces = await sql`
-      SELECT s.id, s.home_type as name, s.household_id, s.updated_at, s.updated_at as created_at,
+      SELECT s.id, s.home_type as name, s.household_id, s.adults, s.kids, s.pets,
+        s.updated_at, s.updated_at as created_at,
         COALESCE(
           json_agg(
             json_build_object('id', r.id, 'name', r.name, 'space_id', r.space_id, 'created_at', r.updated_at, 'updated_at', r.updated_at)

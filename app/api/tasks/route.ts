@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     if (roomId) {
       tasks = await sql`
         SELECT t.id, t.session_id, t.room_id, t.title, t.description,
-               t.rationale, t.difficulty, t.created_at,
+               t.rationale, t.difficulty, t.source, t.created_at,
                r.name as room_name,
                s.status, s.duration_minutes, s.completed_at
         FROM tasks t
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     } else {
       tasks = await sql`
         SELECT t.id, t.session_id, t.room_id, t.title, t.description,
-               t.rationale, t.difficulty, t.created_at,
+               t.rationale, t.difficulty, t.source, t.created_at,
                r.name as room_name,
                s.status, s.duration_minutes, s.completed_at
         FROM tasks t
@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
       room: t.room_name || "Unknown",
       room_id: t.room_id,
       title: t.title,
+      source: t.source || "engine",
       status: t.status || "done",
       duration_minutes: t.duration_minutes,
       completed_at: t.completed_at,
